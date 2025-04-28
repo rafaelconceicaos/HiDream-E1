@@ -1,5 +1,7 @@
 # HiDream-E1
 
+![HiDream-E1 Demo](assets/demo.jpg)
+
 HiDream-E1 is an image editing model built on [HiDream-I1](https://github.com/HiDream-ai/HiDream-I1).
 
 <!-- ![Overview](demo.jpg) -->
