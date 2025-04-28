@@ -67,8 +67,8 @@ with gr.Blocks(title="HiDream Image Editor") as demo:
                 seed = gr.Slider(minimum=0, maximum=10000, step=1, value=3, label="Seed")
                 gr.Markdown("*Note: You might need to try different seeds to get satisfying results.*")
                 guidance_scale = gr.Slider(minimum=1.0, maximum=10.0, step=0.1, value=5.0, label="Instruction Following Strength")
-                image_guidance_scale = gr.Slider(minimum=1.0, maximum=10.0, step=0.1, value=4.0, label="Image Preservation Strength")
-                gr.Markdown("*Note: For style changes, use higher image preservation strength (e.g., 3.0-4.0). For local edits like adding, deleting, replacing elements or changing background, use lower image preservation strength (e.g., 2.0-3.0).*")
+                image_guidance_scale = gr.Slider(minimum=1.0, maximum=10.0, step=0.1, value=3.0, label="Image Preservation Strength")
+                gr.Markdown("*Note: For style changes, use higher image preservation strength (e.g., 3.0-4.0). For local edits like adding, deleting, replacing elements, use lower image preservation strength (e.g., 2.0-3.0).*")
                 steps = gr.Slider(minimum=10, maximum=50, step=1, value=28, label="Steps")
             submit_btn = gr.Button("Generate")
 

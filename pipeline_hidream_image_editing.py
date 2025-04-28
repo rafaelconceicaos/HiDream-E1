@@ -1,5 +1,4 @@
 import inspect
-import math
 from typing import Any, Callable, Dict, List, Optional, Union
 import PIL
 

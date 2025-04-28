@@ -6,17 +6,16 @@ HiDream-E1 is an image editing model built on [HiDream-I1](https://github.com/Hi
 <span style="color: #FF5733; font-weight: bold">For more features and to experience the full capabilities of our product, please visit [https://vivago.ai/](https://vivago.ai/).</span>
 
 ## Project Updates
-- 🚀 **April 25, 2025**: We've open-sourced the instruction-based image editing model **HiDream-E1**. 
+- 🚀 **April 28, 2025**: We've open-sourced the instruction-based image editing model **HiDream-E1**. 
 
 
 ## Models
 
 We offer the full version of HiDream-E1. For more information about the models, please refer to the link under Usage.
 
-| Name            | Script                                             | Inference Steps | HuggingFace repo       |
-| --------------- | -------------------------------------------------- | --------------- | ---------------------- |
-| HiDream-E1-Full | [inference.py](./inference.py)                     | 28              | 🤗 [HiDream-E1-Full](https://huggingface.co/HiDream-ai/HiDream-E1-Full)  |
-
+| Name            | Script                                             | Inference Steps | Resolution | HuggingFace repo       |
+| --------------- | -------------------------------------------------- | --------------- | ---------- | ---------------------- |
+| HiDream-E1-Full | [inference.py](./inference.py)                     | 28              | 768x768    | 🤗 [HiDream-E1-Full](https://huggingface.co/HiDream-ai/HiDream-E1-Full)  |
 
 ## Quick Start
 Please make sure you have installed [Flash Attention](https://github.com/Dao-AILab/flash-attention) and latest [Diffusers](https://github.com/huggingface/diffusers.git). We recommend CUDA versions 12.4 for the manual installation.
@@ -59,7 +58,8 @@ pipe = HiDreamImageEditingPipeline.from_pretrained(
 )
 
 # Load and prepare input image
-test_image = Image.open("your_image.jpg")
+# The model works best for square images.
+test_image = Image.open("assets/test_1.png")
 test_image = test_image.resize((768, 768))
 
 # Move pipeline to GPU
