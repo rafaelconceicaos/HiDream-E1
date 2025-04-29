@@ -1,11 +1,18 @@
 import io
 import base64
+import os
 from openai import OpenAI
 from PIL import Image
 
-# todo: set your own OPENAI_API_KEY and OPENAI_BASE_URL
-# os.environ["OPENAI_API_KEY"] = "sk-xxxxxxxxxxxxxxxxxxxxx"
-# os.environ["OPENAI_BASE_URL"] = "https://xxxxxxxxxxxxxx/v1"
+# Check for OpenAI API key in environment variables
+if "OPENAI_API_KEY" not in os.environ:
+    print("WARNING: OPENAI_API_KEY environment variable is not set.")
+    print("Please set your OpenAI API key with:")
+    print("export OPENAI_API_KEY='your-api-key'")
+    print("or update the instruction_refinement.py file directly.")
+    
+# If custom OPENAI_BASE_URL is needed, uncomment and set:
+# os.environ["OPENAI_BASE_URL"] = "https://your-base-url/v1"
 
 import argparse
 
