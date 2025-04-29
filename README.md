@@ -160,6 +160,9 @@ image.save("output.jpg")
 > 
 > The instruction refinement script requires a VLM API key - you can either run vllm locally or use OpenAI's API.
 
+> [!NOTE]
+> We add a refine_strength parameter to the pipeline to control the balance between editing and refinement stages. During the first (1 - refine_strength) portion of denoising steps, the model performs the main editing operation. The remaining refine_strength portion of steps uses HiDream-I1-Full for img2img refinement to enhance the final result. Set refine_strength to 0.0 to disable refinement.
+
 ## Gradio Demo
 
 We also provide a Gradio demo for interactive image editing. You can run the demo with:
