@@ -788,6 +788,8 @@ class HiDreamImageEditingPipeline(DiffusionPipeline, HiDreamImageLoraLoaderMixin
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         max_sequence_length: int = 128,
+        refine_strength: float = 0.0,
+        reload_keys: Any = None,
         **kwargs,
     ):
         r"""
@@ -967,6 +969,44 @@ class HiDreamImageEditingPipeline(DiffusionPipeline, HiDreamImageLoraLoaderMixin
             lora_scale=lora_scale,
         )
         
+        if "Target Image Description:" in prompt:
+            target_prompt = prompt.split("Target Image Description:")[1].strip()
+            (
+            target_prompt_embeds_t5,
+            target_negative_prompt_embeds_t5,
+            target_prompt_embeds_llama3,
+            target_negative_prompt_embeds_llama3,
+            target_pooled_prompt_embeds,
+            target_negative_pooled_prompt_embeds,
+            ) = self.encode_prompt(
+                prompt=target_prompt,
+                prompt_2=None,
+                prompt_3=None,
+                prompt_4=None,
+                negative_prompt=negative_prompt,
+                negative_prompt_2=None,
+                negative_prompt_3=None,
+                negative_prompt_4=None,
+                do_classifier_free_guidance=self.do_classifier_free_guidance,
+                prompt_embeds_t5=None,
+                prompt_embeds_llama3=None,
+                negative_prompt_embeds_t5=None,
+                negative_prompt_embeds_llama3=None,
+                pooled_prompt_embeds=None,
+                negative_pooled_prompt_embeds=None,
+                device=device,
+                num_images_per_prompt=num_images_per_prompt,
+                max_sequence_length=max_sequence_length,
+                lora_scale=lora_scale,
+            )
+        else:
+            target_prompt_embeds_t5 = prompt_embeds_t5
+            target_negative_prompt_embeds_t5 = negative_prompt_embeds_t5
+            target_prompt_embeds_llama3 = prompt_embeds_llama3
+            target_negative_prompt_embeds_llama3 = negative_prompt_embeds_llama3
+            target_pooled_prompt_embeds = pooled_prompt_embeds
+            target_negative_pooled_prompt_embeds = negative_pooled_prompt_embeds 
+        
         image = self.image_processor.preprocess(image)
 
         image_latents = self.prepare_image_latents(
@@ -986,6 +1026,10 @@ class HiDreamImageEditingPipeline(DiffusionPipeline, HiDreamImageLoraLoaderMixin
             prompt_embeds_t5 = torch.cat([negative_prompt_embeds_t5, negative_prompt_embeds_t5, prompt_embeds_t5], dim=0)
             prompt_embeds_llama3 = torch.cat([negative_prompt_embeds_llama3, negative_prompt_embeds_llama3, prompt_embeds_llama3], dim=1)
             pooled_prompt_embeds = torch.cat([negative_pooled_prompt_embeds, negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)
+            
+            target_prompt_embeds_t5 = torch.cat([target_negative_prompt_embeds_t5, target_prompt_embeds_t5], dim=0)
+            target_prompt_embeds_llama3 = torch.cat([target_negative_prompt_embeds_llama3, target_prompt_embeds_llama3], dim=1)
+            target_pooled_prompt_embeds = torch.cat([target_negative_pooled_prompt_embeds, target_pooled_prompt_embeds], dim=0)
 
         # 4. Prepare latent variables
         num_channels_latents = self.transformer.config.in_channels
@@ -1016,20 +1060,32 @@ class HiDreamImageEditingPipeline(DiffusionPipeline, HiDreamImageLoraLoaderMixin
             )
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
         self._num_timesteps = len(timesteps)
-
         # 6. Denoising loop
+        refine_stage = False
+        if reload_keys is not None:
+            load_info = self.transformer.load_state_dict(reload_keys['editing'], strict=False)
+            assert len(load_info.unexpected_keys) == 0
+            self.transformer.enable_adapters()
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
+                if reload_keys is not None and i == int(num_inference_steps * (1.0 - refine_strength)):
+                    self.transformer.disable_adapters()
+                    load_info = self.transformer.load_state_dict(reload_keys['refine'], strict=False)
+                    assert len(load_info.unexpected_keys) == 0
+                    logger.info(f"Refining start at step {i}")
+                    refine_stage = True
                 if self.interrupt:
                     continue
-
-                # expand the latents if we are doing classifier free guidance
-                latent_model_input = torch.cat([latents] * 3) if self.do_classifier_free_guidance else latents
+                if refine_stage:
+                    latent_model_input_with_condition = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
+                    prompt_embeds_t5 = target_prompt_embeds_t5
+                    prompt_embeds_llama3 = target_prompt_embeds_llama3
+                    pooled_prompt_embeds = target_pooled_prompt_embeds
+                else:
+                    latent_model_input = torch.cat([latents] * 3) if self.do_classifier_free_guidance else latents
+                    latent_model_input_with_condition = torch.cat([latent_model_input, image_latents], dim=-1)
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-                timestep = t.expand(latent_model_input.shape[0])
-                
-                latent_model_input_with_condition = torch.cat([latent_model_input, image_latents], dim=-1)
-                
+                timestep = t.expand(latent_model_input_with_condition.shape[0])
                 noise_pred = self.transformer(
                     hidden_states=latent_model_input_with_condition,
                     timesteps=timestep,
@@ -1038,13 +1094,17 @@ class HiDreamImageEditingPipeline(DiffusionPipeline, HiDreamImageLoraLoaderMixin
                     pooled_embeds=pooled_prompt_embeds,
                     return_dict=False,
                 )[0]
-
                 # perform guidance
                 if self.do_classifier_free_guidance:
-                    uncond, image_cond, full_cond = noise_pred.chunk(3)
-                    noise_pred = uncond + self.image_guidance_scale * (image_cond - uncond) + self.guidance_scale * (
-                                full_cond - image_cond)
-                    noise_pred = noise_pred[..., :latent_model_input.shape[-1]]
+                    if refine_stage:
+                        uncond, full_cond = noise_pred.chunk(2)
+                        noise_pred = uncond + self.guidance_scale * (full_cond - uncond)
+                        noise_pred = noise_pred[..., :latents.shape[-1]]
+                    else:
+                        uncond, image_cond, full_cond = noise_pred.chunk(3)
+                        noise_pred = uncond + self.image_guidance_scale * (image_cond - uncond) + self.guidance_scale * (
+                                    full_cond - image_cond)
+                        noise_pred = noise_pred[..., :latents.shape[-1]]
 
                 noise_pred = -noise_pred
 
