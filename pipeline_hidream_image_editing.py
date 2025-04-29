@@ -1104,7 +1104,7 @@ class HiDreamImageEditingPipeline(DiffusionPipeline, HiDreamImageLoraLoaderMixin
                         uncond, image_cond, full_cond = noise_pred.chunk(3)
                         noise_pred = uncond + self.image_guidance_scale * (image_cond - uncond) + self.guidance_scale * (
                                     full_cond - image_cond)
-                        noise_pred = noise_pred[..., :latent_model_input.shape[-1]]
+                        noise_pred = noise_pred[..., :latents.shape[-1]]
 
                 noise_pred = -noise_pred
 
