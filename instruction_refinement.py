@@ -10,16 +10,6 @@ if "OPENAI_API_KEY" not in os.environ:
     print("Please set your OpenAI API key with:")
     print("export OPENAI_API_KEY='your-api-key'")
     print("or update the instruction_refinement.py file directly.")
-    
-# If custom OPENAI_BASE_URL is needed, uncomment and set:
-# os.environ["OPENAI_BASE_URL"] = "https://your-base-url/v1"
-
-import argparse
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--src_image", type=str, default="src_image.jpg")
-parser.add_argument("--src_instruction", type=str, default="change the color of the middle car to red")
-args = parser.parse_args()
 
 instruction = """Your Role: You are an analytical assistant. Your task is to process a source image and a corresponding editing instruction, assuming the instruction accurately describes a desired transformation. You will 1) describe the source image, 2) output the editing instruction (potentially refined for clarity based on the source image context), and 3) describe the *imagined* result of applying that instruction.
 
@@ -33,7 +23,7 @@ Task Breakdown:
 2.  **Output Editing Instruction:** This step determines the second line of your output.
     * **Assumption:** The provided Source Instruction *accurately* describes the desired edit.
     * **Goal:** Output a concise, single-line instruction based on the Source Instruction.
-    * **Refinement based on Source Image:** While the Source Instruction is assumed correct, analyze the Source Image to see if the instruction needs refinement for specificity. If the Source Image contains multiple similar objects and the Source Instruction is potentially ambiguous (e.g., "change the car color" when there are three cars), refine the instruction to be specific, using positional qualifiers (e.g., 'the left car', 'the bird on the top branch'), size ('the smaller dog', 'the largest building'), or other distinguishing visual features apparent in the Source Image. If the Source Instruction is already specific or if there's no ambiguity in the Source Image context, you can use it directly or with minor phrasing adjustments for naturalness. The *core meaning* of the Source Instruction must be preserved.
+    * **Refinement based on Source Image:** While the Source Instruction is assumed correct, analyze the Source Image to see if the instruction needs refinement for specificity. If the Source Image contains multiple similar objects and the Source Instruction is potentially ambiguous (e.g., "change the car color to red" when there are three cars), refine the instruction to be specific, using positional qualifiers (e.g., 'the left car', 'the bird on the top branch'), size ('the smaller dog', 'the largest building'), or other distinguishing visual features apparent in the Source Image. If the Source Instruction is already specific or if there's no ambiguity in the Source Image context, you can use it directly or with minor phrasing adjustments for naturalness. The *core meaning* of the Source Instruction must be preserved.
     * **Output:** Present the resulting specific, single-line instruction as the second line.
 
 3.  **Describe Imagined Target Image:** Based *only* on the Source Image description (Line 1) and the Editing Instruction (Line 2), generate a description of the *imagined outcome*.
@@ -82,7 +72,7 @@ def filter_response(src_instruction):
         return ""
 
 def refine_instruction(src_image, src_instruction):
-    MAX_TOKENS_RESPONSE = 500 # Limit response tokens as output format is structured
+    MAX_TOKENS_RESPONSE = 500  # Limit response tokens as output format is structured
     client = OpenAI()
     src_image = src_image.convert("RGB")
     src_image_buffer = io.BytesIO()
@@ -90,28 +80,30 @@ def refine_instruction(src_image, src_instruction):
     src_image_buffer.seek(0)
     src_base64 = base64.b64encode(src_image_buffer.read()).decode('utf-8')
     encoded_str = f"data:image/jpeg;base64,{src_base64}"
-    image_content = [
-        {"type": "image_url", "image_url": {"url": encoded_str,}},
-    ]
+    image_content = [{"type": "image_url", "image_url": {"url": encoded_str}}]
     instruction_text = instruction.format(source_instruction=src_instruction)
-    message_content = [
-        {"type": "text", "text": instruction_text},
-        *image_content # Unpack the list of image dictionaries
-    ]
+    message_content = [{"type": "text", "text": instruction_text}, *image_content]
     completion = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are a professional digital artist."},
-                {"role": "user", "content": message_content}
-            ],
-            max_tokens=MAX_TOKENS_RESPONSE, # Good practice to set max tokens
-            temperature=0.2 # Lower temperature for more deterministic output
-        )
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a professional digital artist."},
+            {"role": "user", "content": message_content}
+        ],
+        max_tokens=MAX_TOKENS_RESPONSE,
+        temperature=0.2
+    )
     evaluation_result = completion.choices[0].message.content
     refined_instruction = filter_response(evaluation_result)
     return refined_instruction
 
+# Prevent script from running on import
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--src_image", type=str, default="src_image.jpg")
+    parser.add_argument("--src_instruction", type=str, default="change the color of the middle car to red")
+    args = parser.parse_args()
+
     src_image = Image.open(args.src_image)
     instruction = args.src_instruction
     refined_instruction = refine_instruction(src_image, instruction)
