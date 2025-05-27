@@ -1,40 +1,67 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 import torch
 from transformers import PreTrainedTokenizerFast, LlamaForCausalLM
 from pipeline_hidream_image_editing import HiDreamImageEditingPipeline
 from PIL import Image
-from peft import LoraConfig
-from huggingface_hub import hf_hub_download
-from diffusers import HiDreamImageTransformer2DModel
-from instruction_refinement import refine_instruction
-from safetensors.torch import load_file
-# Set to True to enable instruction refinement and transformer model
-ENABLE_REFINE = True
 
-# Load models
-print("Loading models...")
-tokenizer_4 = PreTrainedTokenizerFast.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
+# Refinamento opcional
+from instruction_refinement import refine_instruction
+
+# Hugging Face token
+HF_TOKEN = os.getenv("TOKEN_HUGGINGFACE")
+
+# Habilitar ou não o refinamento com HiDream-I1 + adapters
+ENABLE_REFINE = False
+
+# Tokenizer e modelo LLaMA 3.1 com autenticação
+print("Loading LLaMA tokenizer and encoder...")
+tokenizer_4 = PreTrainedTokenizerFast.from_pretrained(
+    "meta-llama/Llama-3.1-8B-Instruct",
+    token=HF_TOKEN
+)
 text_encoder_4 = LlamaForCausalLM.from_pretrained(
     "meta-llama/Llama-3.1-8B-Instruct",
+    token=HF_TOKEN,
     output_hidden_states=True,
     output_attentions=True,
     torch_dtype=torch.bfloat16,
 )
 
-# Configure transformer model if refinement is enabled
+# Se ENABLE_REFINE = True, configurar o transformer com LoRA
 transformer = None
 reload_keys = None
 if ENABLE_REFINE:
-    transformer = HiDreamImageTransformer2DModel.from_pretrained("HiDream-ai/HiDream-I1-Full", subfolder="transformer")
+    from peft import LoraConfig
+    from huggingface_hub import hf_hub_download
+    from diffusers import HiDreamImageTransformer2DModel
+    from safetensors.torch import load_file
+
+    transformer = HiDreamImageTransformer2DModel.from_pretrained(
+        "HiDream-ai/HiDream-I1-Full",
+        subfolder="transformer"
+    )
     lora_config = LoraConfig(
         r=16,
         lora_alpha=16,
         lora_dropout=0.0,
-        target_modules=["to_k", "to_q", "to_v", "to_out", "to_k_t", "to_q_t", "to_v_t", "to_out_t", "w1", "w2", "w3", "final_layer.linear"],
+        target_modules=[
+            "to_k", "to_q", "to_v", "to_out",
+            "to_k_t", "to_q_t", "to_v_t", "to_out_t",
+            "w1", "w2", "w3", "final_layer.linear"
+        ],
         init_lora_weights="gaussian",
     )
     transformer.add_adapter(lora_config)
     transformer.max_seq = 4608
-    lora_ckpt_path = hf_hub_download(repo_id="HiDream-ai/HiDream-E1-Full", filename="HiDream-E1-Full.safetensors")
+
+    print("Loading HiDream-E1 weights...")
+    lora_ckpt_path = hf_hub_download(
+        repo_id="HiDream-ai/HiDream-E1-Full",
+        filename="HiDream-E1-Full.safetensors"
+    )
     lora_ckpt = load_file(lora_ckpt_path, device="cuda")
     src_state_dict = transformer.state_dict()
     reload_keys = [k for k in lora_ckpt if "lora" not in k]
@@ -45,7 +72,8 @@ if ENABLE_REFINE:
     info = transformer.load_state_dict(lora_ckpt, strict=False)
     assert len(info.unexpected_keys) == 0
 
-# Initialize pipeline
+# Inicializa o pipeline
+print("Initializing pipeline...")
 if ENABLE_REFINE:
     pipe = HiDreamImageEditingPipeline.from_pretrained(
         "HiDream-ai/HiDream-I1-Full",
@@ -61,23 +89,25 @@ else:
         text_encoder_4=text_encoder_4,
         torch_dtype=torch.bfloat16,
     )
-pipe = pipe.to("cuda", torch.bfloat16)
-print("Models loaded successfully!")
 
-# Load and preprocess test image
+pipe = pipe.to("cuda", torch.bfloat16)
+print("Pipeline loaded.")
+
+# Carrega a imagem de teste
 test_image = Image.open("assets/test_1.png")
 original_width, original_height = test_image.size
 test_image = test_image.resize((768, 768))
 
-# Define instruction
+# Define e refina a instrução
 instruction = 'Convert the image into a Ghibli style.'
+if ENABLE_REFINE:
+    refined_instruction = refine_instruction(src_image=test_image, src_instruction=instruction)
+    print(f"Refined: {refined_instruction}")
+else:
+    refined_instruction = f"Editing Instruction: {instruction}. Target Image Description: A Ghibli-style illustration of the same image."
 
-# Refine instruction if enabled
-refined_instruction = refine_instruction(src_image=test_image, src_instruction=instruction)
-print(f"Original instruction: {instruction}")
-print(f"Refined instruction: {refined_instruction}")
-
-# Generate image
+# Gera imagem
+print("Generating image...")
 image = pipe(
     prompt=refined_instruction,
     negative_prompt="low resolution, blur",
@@ -90,7 +120,7 @@ image = pipe(
     reload_keys=reload_keys,
 ).images[0]
 
-# Resize back to original dimensions and save
+# Redimensiona e salva
 image = image.resize((original_width, original_height))
 image.save("output.jpg")
 print("Image saved to output.jpg")
